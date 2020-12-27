@@ -5,26 +5,37 @@ const addrs = require("email-addresses");
 const sgMail = require('@sendgrid/mail');
 const twilio = require('twilio');
 const axios = require('axios');
+const extractHtml = require('../utils/extract-html');
+
+const MAX_TEXT_PAYLOAD = 1600;
+
+var globalSettings;
 
 logPayload = (msg, payload)=> {
     console.log(msg)
     const dest = process.env.LOG_PAYLOAD_DEST || ""
+
+    if (dest == "") {
+        console.debug(payload);
+        return;
+    }
+
     axios.post(dest, {msg, payload})
     .then(res=>console.log(`Post to ${dest} success`))
     .catch(error=>console.error(error));
 }
 
-module.exports = async (req, res) => { 
+module.exports = (req, res) => { 
     logPayload(`Starting client`, req.body)
     const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-    process = util.promisify(multer().any())(req, res);
-    process.then(()=>{
+    util.promisify(multer().any())(req, res)
+    .then(res=>{
         console.log(`Multer complete`);
         const from = req.body.from;
         const to = req.body.to;
         const subject = req.body.subject;
-        const body = req.body.text; //req.body.html; don't think we can send html in twilio
+        const body = extractHtml(req.body.html).slice(0, MAX_TEXT_PAYLOAD); //req.body.html; don't think we can send html in twilio
     
         //Using email-addresses library to extract email details.
         const toAddress = addrs.parseOneAddress(to);
@@ -40,7 +51,6 @@ module.exports = async (req, res) => {
             body
         }).then(msg => {
             logPayload(`SMS Successfully Sent`, msg);
-            res.status(200).send(msg.sid);
         }).catch(err => {
             logPayload(`SMS Failed to send`, err);
             //If we get an error when sending the SMS email the error message back to the sender
@@ -57,14 +67,12 @@ module.exports = async (req, res) => {
             sgResp = sgMail.send(email)
                 .then(response => {
                     logPayload(`Fail Email Sent`, response);
-                    res.status(200).send("Sent Error Email");
                 })
                 .catch(error => {
-                    logPayload(`Failed to send faile email`, error);
-                    res.status(500);
+                    logPayload(`Failed to send failed email`, error);
                 });
         });
     });
     
-    res.status(200).send();
+    return;
 };
